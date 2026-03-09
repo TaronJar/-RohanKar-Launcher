@@ -414,33 +414,12 @@ async function init() {
           version:      data.version,
           releaseNotes: data.releaseNotes || null,
           releaseDate:  data.releaseDate  || null,
-          isReady:      false,
-        };
-        updateMsg.textContent = `⬇ Update v${data.version} available — downloading in background…`;
-        btnNotes.classList.remove('hidden');
-        updateBar.classList.remove('hidden');
-        break;
-
-      case 'downloading':
-        updateMsg.textContent = `⬇ Downloading update… ${data.percent}%`;
-        btnNotes.classList.remove('hidden');
-        updateBar.classList.remove('hidden');
-        break;
-
-      case 'ready':
-        if (pendingUpdateInfo) pendingUpdateInfo.isReady = true;
-        else pendingUpdateInfo = {
-          version:      data.version,
-          releaseNotes: data.releaseNotes || null,
-          releaseDate:  data.releaseDate  || null,
           isReady:      true,
         };
-        updateMsg.textContent = `✅ Update v${data.version} ready — restart to apply.`;
+        updateMsg.textContent = `✨ Update v${data.version} available`;
         btnNotes.classList.remove('hidden');
         btnUpdateInstall.classList.remove('hidden');
         updateBar.classList.remove('hidden');
-        // Also refresh the install button inside the changelog modal if it's open
-        btnChangelogInstall.classList.remove('hidden');
         break;
 
       case 'error': {

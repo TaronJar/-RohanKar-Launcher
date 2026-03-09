@@ -557,8 +557,8 @@ function setupAutoUpdater() {
     return;
   }
 
-  autoUpdater.autoDownload    = true;   // download silently in background
-  autoUpdater.autoInstallOnAppQuit = true; // install when user quits
+  autoUpdater.autoDownload         = false; // don't auto-download — GitHub releases don't report progress
+  autoUpdater.allowDowngrade        = false;
 
   autoUpdater.on('checking-for-update', () => {
     console.log('[updater] Checking for update…');
@@ -601,22 +601,8 @@ function setupAutoUpdater() {
     console.log('[updater] Up to date.');
   });
 
-  autoUpdater.on('download-progress', (progress) => {
-    mainWindow?.webContents.send('updater-status', {
-      status: 'downloading',
-      percent: Math.round(progress.percent),
-    });
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('[updater] Update downloaded:', info.version);
-    mainWindow?.webContents.send('updater-status', {
-      status:       'ready',
-      version:      info.version,
-      releaseNotes: info.releaseNotes || null,
-      releaseDate:  info.releaseDate  || null,
-    });
-  });
+  // No download-progress or update-downloaded handlers needed —
+  // we send users to GitHub to download manually instead.
 
   autoUpdater.on('error', (err) => {
     const msg = err.message || '';
@@ -637,9 +623,9 @@ function setupAutoUpdater() {
     setTimeout(() => autoUpdater.checkForUpdates(), 3000);
   });
 
-  // IPC: renderer asks to install now
+  // IPC: renderer asks to download update — open GitHub releases page in browser
   ipcMain.handle('updater-install', () => {
-    autoUpdater.quitAndInstall();
+    shell.openExternal('https://github.com/Kilted-Kraken/-RohanKar-Launcher/releases/latest');
   });
 }
 
