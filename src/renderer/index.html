@@ -1,80 +1,223 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self';
+    style-src 'self' 'unsafe-inline';
+    connect-src 'self' https://archive.org;
+    img-src 'self' https://archive.org file: data:;
+  ">
   <title>RohanKar Launcher</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+
+  <!-- Titlebar -->
   <div id="titlebar">
-    <div id="titlebar-left">
-      <img id="app-logo" src="../../assets/icons/rk-logo.jpg" />
-      <span id="app-name">RohanKar Launcher</span>
+    <div id="titlebar-drag">
+      <img src="../../assets/icons/rk-logo.jpg" class="titlebar-logo" alt="RK" />
+      <span class="titlebar-title">RohanKar Launcher</span>
     </div>
-    <div id="titlebar-center">
-      <nav id="nav-tabs">
-        <button class="nav-tab active" data-view="library">Library</button>
-        <button class="nav-tab" data-view="browse">Browse</button>
-      </nav>
-    </div>
-    <div id="titlebar-right">
-      <button class="win-btn" id="btn-minimize">&#8722;</button>
-      <button class="win-btn" id="btn-maximize">&#9633;</button>
-      <button class="win-btn" id="btn-close">&#10005;</button>
+    <div id="window-controls">
+      <button id="btn-minimize">─</button>
+      <button id="btn-maximize">□</button>
+      <button id="btn-close">✕</button>
     </div>
   </div>
-  <div id="app-body">
-    <div id="sidebar">
-      <div id="sidebar-search">
-        <input type="text" id="search-input" placeholder="Search games..." />
-      </div>
-      <div id="game-list">
-        <div class="loading-msg">Loading games...</div>
-      </div>
+
+  <!-- Update notification bar (hidden until an update is found) -->
+  <div id="update-bar" class="hidden">
+    <span id="update-msg"></span>
+    <div id="update-actions">
+      <button id="btn-update-install" class="hidden">Restart &amp; Update</button>
+      <button id="btn-update-dismiss">✕</button>
     </div>
-    <div id="center-panel">
-      <div id="hero-area">
-        <div id="hero-image-wrap">
-          <img id="hero-img" src="" alt="" />
-          <div id="hero-gradient"></div>
-        </div>
-        <div id="hero-info">
-          <div id="hero-title">Select a Game</div>
-          <div id="hero-meta"></div>
+  </div>
+
+  <!-- Layout -->
+  <div id="app">
+
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-top">
+        <input id="search-input" type="text" placeholder="Search games…" />
+        <select id="sort-filter">
+          <option value="az">Title A → Z</option>
+          <option value="za">Title Z → A</option>
+          <option value="date-archived">Date Archived</option>
+          <option value="date-published">Date Published</option>
+          <option value="developer">Developer</option>
+        </select>
+        <div id="sidebar-bottom-buttons">
+          <button id="btn-settings" title="Settings">⚙ Settings</button>
+          <button id="btn-about" title="About">ℹ About</button>
         </div>
       </div>
-      <div id="content-area">
-        <div id="welcome-msg">
-          <h2>Welcome to RohanKar Launcher</h2>
-          <p>Select a game from the sidebar to view details, or browse all available titles.</p>
+      <div id="library-grid"></div>
+    </aside>
+
+    <!-- Main content -->
+    <main id="main">
+
+      <!-- Hero -->
+      <div id="hero">
+        <div id="hero-image"></div>
+        <img id="hero-local" class="hidden" alt="" />
+        <div id="hero-overlay">
+          <h1 id="hero-title">Select a game</h1>
         </div>
       </div>
+
+      <!-- Detail panel -->
+      <div id="detail-panel" class="hidden">
+
+        <div id="detail-top">
+          <img id="detail-cover" class="hidden" alt="cover" />
+
+          <div id="detail-info">
+            <h2 id="detail-title"></h2>
+            <div id="detail-meta"></div>
+            <div id="detail-extra"></div>
+            <div id="detail-rating" class="hidden"></div>
+            <div id="detail-playtime" class="hidden"></div>
+
+            <!-- Action buttons -->
+            <div id="detail-actions">
+              <button id="btn-download" disabled>Download</button>
+              <button id="btn-launch"   disabled>Launch</button>
+              <button id="btn-delete"   disabled>Delete</button>
+              <button id="btn-open-location" class="hidden" title="Open install folder">📁 Open Location</button>
+              <button id="btn-clear-default" class="hidden" title="Clear default executable">✕ Clear Default EXE</button>
+            </div>
+
+            <!-- Progress -->
+            <div id="progress-wrap" class="hidden">
+              <div id="progress-bar-bg">
+                <div id="progress-bar"></div>
+              </div>
+              <span id="progress-text">0%</span>
+              <button id="btn-cancel-download">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div id="tabs">
+          <button class="tab-btn active" data-tab="info">Info</button>
+          <button class="tab-btn"        data-tab="readme">Readme</button>
+          <button class="tab-btn"        data-tab="reviews">Reviews</button>
+        </div>
+
+        <!-- Tab: Info -->
+        <div id="tab-info" class="tab-panel active">
+          <p id="detail-desc-archive"></p>
+          <hr id="desc-separator" class="hidden" />
+          <p id="detail-desc-igdb" class="hidden"></p>
+        </div>
+
+        <!-- Tab: Readme -->
+        <div id="tab-readme" class="tab-panel">
+          <pre id="readme-content"></pre>
+          <p id="readme-empty" style="display:none">No readme file found.</p>
+        </div>
+
+        <!-- Tab: Reviews -->
+        <div id="tab-reviews" class="tab-panel">
+          <p id="reviews-loading" style="display:none">Loading reviews…</p>
+          <div id="reviews-list"></div>
+          <p id="reviews-empty" style="display:none">No reviews yet.</p>
+        </div>
+
+      </div><!-- /detail-panel -->
+
+    </main>
+  </div><!-- /app -->
+
+  <!-- Settings modal -->
+  <div id="settings-modal" class="hidden">
+    <div id="settings-inner">
+      <div id="settings-header">
+        <h2>Settings</h2>
+        <button id="btn-close-settings">✕</button>
+      </div>
+
+      <div class="settings-row">
+        <label for="setting-download-path">Download folder</label>
+        <div class="settings-path-row">
+          <input id="setting-download-path" type="text" placeholder="Default: AppData/games" />
+          <button id="btn-choose-download">Browse…</button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <label for="setting-install-path">Install folder</label>
+        <div class="settings-path-row">
+          <input id="setting-install-path" type="text" placeholder="Default: AppData/games" />
+          <button id="btn-choose-install">Browse…</button>
+        </div>
+      </div>
+
+      <div class="settings-row settings-check-row">
+        <label for="setting-delete-after-install">Delete archive after install</label>
+        <input id="setting-delete-after-install" type="checkbox" />
+      </div>
+
+      <div class="settings-row settings-check-row">
+        <label for="setting-installed-first">Show installed games first</label>
+        <input id="setting-installed-first" type="checkbox" />
+      </div>
+
+      <button id="btn-save-settings">Save</button>
     </div>
-    <div id="detail-panel">
-      <div id="detail-cover-wrap">
-        <img id="detail-cover" src="" alt="" />
+  </div>
+
+  <!-- About modal -->
+  <div id="about-modal" class="hidden">
+    <div id="about-inner">
+      <div id="about-header">
+        <h2>About</h2>
+        <button id="btn-close-about">✕</button>
       </div>
-      <div id="detail-info">
-        <div id="detail-title">—</div>
-        <div id="detail-year" class="detail-meta-line"></div>
-        <div id="detail-size" class="detail-meta-line"></div>
-        <div id="detail-downloads" class="detail-meta-line"></div>
-        <div id="detail-desc"></div>
-      </div>
-      <div id="detail-actions">
-        <button class="action-btn primary" id="btn-download" disabled>Download</button>
-        <button class="action-btn" id="btn-launch" disabled>Launch</button>
-        <button class="action-btn danger" id="btn-delete" disabled>Delete</button>
-      </div>
-      <div id="download-progress-wrap" style="display:none">
-        <div id="download-progress-bar">
-          <div id="download-progress-fill"></div>
+      <div id="about-body">
+        <img src="../../assets/icons/rk-logo.jpg" id="about-logo" alt="RohanKar" />
+        <div id="about-info">
+          <div id="about-name">RohanKar Launcher</div>
+          <div id="about-version"></div>
+          <div id="about-desc">A desktop launcher for the RohanKar game archive on archive.org.</div>
+          <div id="about-links">
+            <a href="https://github.com/Kilted-Kraken/-RohanKar-Launcher" id="about-github">GitHub Repository</a>
+            <a href="https://archive.org/search?query=uploader%3Arohanjackson071%40gmail.com" id="about-archive">Archive.org Collection</a>
+          </div>
         </div>
-        <div id="download-progress-label">Preparing...</div>
+      </div>
+      <div id="about-footer">
+        <button id="btn-close-about-footer">Close</button>
       </div>
     </div>
   </div>
+
+  <!-- Changelog modal -->
+  <div id="changelog-modal" class="hidden">
+    <div id="changelog-inner">
+      <div id="changelog-header">
+        <div id="changelog-title-row">
+          <h2 id="changelog-heading">What's New</h2>
+          <span id="changelog-version-badge"></span>
+        </div>
+        <button id="btn-close-changelog">✕</button>
+      </div>
+      <div id="changelog-date"></div>
+      <div id="changelog-body"></div>
+      <div id="changelog-footer">
+        <button id="btn-changelog-install" class="hidden">Restart &amp; Update</button>
+        <button id="btn-changelog-close">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 </html>
