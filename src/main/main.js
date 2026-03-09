@@ -423,14 +423,11 @@ ipcMain.handle('launch-game', (_, { identifier, exePath }) => {
   return new Promise(async (resolve) => {
     if (!fs.existsSync(exePath)) return resolve({ ok: false, error: 'Executable not found: ' + exePath });
 
-    // Unblock the entire install directory before launching (removes Windows Mark of the Web).
-    // We walk up two levels from the exe to reach the install root:
-    //   installDir\GameFolder\bin\game.exe  → unblock installDir\GameFolder\
-    //   installDir\GameFolder\game.exe      → unblock installDir\GameFolder\
-    const exeDir     = path.dirname(exePath);
-    const parentDir  = path.dirname(exeDir);
-    // If exe is inside a 'bin' subfolder, unblock from one level above it
-    const unblockRoot = path.basename(exeDir).toLowerCase() === 'bin' ? parentDir : exeDir;
+    // Unblock the ENTIRE install directory tree before launching.
+    // DOSBox and other launchers load files from subdirs like GAME\ which are
+    // also blocked by Windows Zone.Identifier — so we unblock from installDir root.
+    const gameRow    = db?.prepare('SELECT install_dir FROM games WHERE identifier = ?').get(identifier);
+    const unblockRoot = gameRow?.install_dir || path.dirname(exePath);
     await unblockDirectory(unblockRoot);
 
     const start   = Date.now();
