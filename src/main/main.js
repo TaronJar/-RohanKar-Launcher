@@ -4,7 +4,7 @@
  * Session 5: Auto-updater added (electron-updater + GitHub releases).
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path   = require('path');
 const fs     = require('fs');
 const https  = require('https');
@@ -143,7 +143,6 @@ ipcMain.handle('check-game-hero', (_, { installDir }) => {
 });
 
 ipcMain.on('open-external', (_, url) => {
-  const { shell } = require('electron');
   shell.openExternal(url);
 });
 
