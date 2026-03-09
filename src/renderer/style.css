@@ -923,3 +923,16 @@ input:focus, select:focus { border-color: var(--accent); }
   font-size: 12px;
 }
 #btn-clear-default:hover { background: var(--bg2); color: var(--danger); border-color: var(--danger); }
+
+/* About modal link icons */
+.about-link-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+#about-links a {
+  display: flex;
+  align-items: center;
+}
