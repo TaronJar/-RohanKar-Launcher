@@ -931,6 +931,7 @@ input:focus, select:focus { border-color: var(--accent); }
   vertical-align: middle;
   margin-right: 6px;
   flex-shrink: 0;
+  fill: #ffffff;
 }
 #about-links a {
   display: flex;
