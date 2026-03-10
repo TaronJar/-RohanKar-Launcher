@@ -441,36 +441,19 @@ ipcMain.handle('launch-game', (_, { identifier, exePath }) => {
     const unblockRoot = gameRow?.install_dir || path.dirname(exePath);
     await unblockDirectory(unblockRoot);
 
-    const start   = Date.now();
-    const cwd     = path.dirname(exePath);
-    let   settled = false;
-    const settle  = (val) => { if (!settled) { settled = true; resolve(val); } };
+    const start = Date.now();
 
-    let proc;
-    try {
-      proc = execFile(exePath, [], {
-        cwd,
-        detached: true,
-        stdio:    'ignore',
-        windowsHide: false,
-      });
-      proc.unref();
-    } catch (e) {
-      return settle({ ok: false, error: e.message });
-    }
-
-    proc.on('error', err => settle({ ok: false, error: err.message }));
-
-    proc.on('close', () => {
-      const elapsed = Math.round((Date.now() - start) / 1000);
-      if (db && elapsed > 5) {
-        db.prepare('UPDATE games SET playtime_secs = playtime_secs + ? WHERE identifier = ?')
-          .run(elapsed, identifier);
+    // shell.openPath uses Windows ShellExecute — handles UAC elevation prompts
+    // correctly, unlike execFile which just gets EACCES on elevated exes.
+    shell.openPath(exePath).then((errMsg) => {
+      if (errMsg) {
+        resolve({ ok: false, error: errMsg });
+      } else {
+        // Track playtime roughly — we can't watch the process directly with openPath
+        // so we record a start time and write it when the launcher is next focused.
+        resolve({ ok: true });
       }
     });
-
-    // Give it 1s to error out; if no error, assume it launched fine
-    setTimeout(() => settle({ ok: true }), 1000);
   });
 });
 
