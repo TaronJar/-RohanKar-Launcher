@@ -637,33 +637,44 @@ function renderLibraryGrid() {
     label.className   = 'card-label';
     label.textContent = getTitle(game);
 
-    // Favorite star
+    card.appendChild(img);
+
+    // Text column: [badge strip] [label] [installed badge]
+    const textCol = document.createElement('div');
+    textCol.className = 'card-text-col';
+
+    // Badge strip — right-aligned, order: [future×5] [ctrl] [star]
+    const badgeStrip = document.createElement('div');
+    badgeStrip.className = 'card-badges';
+
+    if (hasCtrl) {
+      const ctrlBadge = document.createElement('span');
+      ctrlBadge.className   = 'card-badge controller';
+      ctrlBadge.textContent = '🎮';
+      ctrlBadge.title       = 'Controller Support';
+      badgeStrip.appendChild(ctrlBadge);
+    }
     if (isFav) {
       const fav = document.createElement('span');
       fav.className   = 'card-fav';
       fav.textContent = '★';
-      card.appendChild(fav);
+      badgeStrip.appendChild(fav);
     }
 
-    // Controller badge
-    if (hasCtrl) {
-      const ctrlBadge = document.createElement('span');
-      ctrlBadge.className = 'card-badge controller';
-      ctrlBadge.textContent = '🎮';
-      ctrlBadge.title = 'Controller Support';
-      card.appendChild(ctrlBadge);
-    }
+    // Only add the strip if it has badges (avoids empty space on plain cards)
+    if (hasCtrl || isFav) textCol.appendChild(badgeStrip);
 
-    // Installed badge
+    textCol.appendChild(label);
+
+    // Installed badge — sits below the label inside the text column
     if (libEntry?.install_dir) {
       const badge = document.createElement('span');
       badge.className   = 'card-badge installed';
       badge.textContent = 'Installed';
-      card.appendChild(badge);
+      textCol.appendChild(badge);
     }
 
-    card.appendChild(img);
-    card.appendChild(label);
+    card.appendChild(textCol);
     card.addEventListener('click', () => selectGame(game));
     libraryGrid.appendChild(card);
   });
@@ -767,12 +778,13 @@ async function selectGame(game) {
   if (readmeContent)  readmeContent.textContent = '';
   if (readmeEmpty)    readmeEmpty.style.display  = 'none';
 
-  // reviews — clear
+  // reviews — clear (also reset loaded cache so reviews reload when tab is clicked)
   reviewsList.innerHTML = '';
+  reviewsList.dataset.loaded   = '';
   reviewsEmpty.style.display   = 'none';
   reviewsLoading.style.display = 'none';
 
-  refreshButtonStates();
+  refreshButtonStates(); // intentionally not awaited — exe scan runs in background
   resetProgressUI();
 
   // Load readme if installed
@@ -1160,7 +1172,7 @@ function updateFavoriteButton() {
   const btn = document.getElementById('btn-favorite');
   if (!btn || !selectedGame) return;
   const isFav = !!library[selectedGame.identifier]?.is_favorite;
-  btn.textContent = isFav ? '★ Favorited' : '☆ Favorite';
+  btn.textContent = isFav ? '★' : '☆';
   if (isFav) btn.classList.add('is-favorite');
   else       btn.classList.remove('is-favorite');
 }
@@ -1202,9 +1214,7 @@ function renderCollectionFilter() {
   sel.value = prev;
 }
 
-async function openCollectionsModal() {
-  collections = await window.electronAPI.getCollections();
-  renderCollectionFilter();
+function openCollectionsModal() {
   renderCollectionsList();
   document.getElementById('collections-modal').classList.remove('hidden');
 }
