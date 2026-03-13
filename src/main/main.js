@@ -293,13 +293,22 @@ ipcMain.handle('fetch-file-list', async (_, { identifier }) => {
   });
 });
 
+// Sanitize an archive.org identifier for safe use as a folder name.
+// Windows forbids names ending with a dot or space.
+function sanitizeFolderName(name) {
+  return name.replace(/[.\s]+$/, '').replace(/[<>:"/\\|?*]/g, '_') || '_';
+}
+
 ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileName }) => {
   const settings    = loadSettings();
   const downloadDir = settings.downloadPath || DEFAULT_GAMES_DIR;
-  const destDir     = path.join(downloadDir, identifier);
+  const destDir     = path.join(downloadDir, sanitizeFolderName(identifier));
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
-  const destFile = path.join(destDir, fileName);
+  // fileName from archive.org can contain subdirectory paths (e.g. "SubDir/Game.7z").
+  // Flatten to just the basename so we always write into destDir directly.
+  const safeFileName = path.basename(fileName);
+  const destFile = path.join(destDir, safeFileName);
 
   return new Promise((resolve) => {
     const doRequest = (url, redirectCount) => {
@@ -343,10 +352,14 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
         res.on('data', chunk => {
           received += chunk.length;
           if (total > 0) {
-            event.sender.send('download-progress', {
-              identifier,
-              percent: Math.round(received / total * 100),
-            });
+            try {
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('download-progress', {
+                  identifier,
+                  percent: Math.round(received / total * 100),
+                });
+              }
+            } catch {}
           }
         });
 
@@ -395,7 +408,7 @@ ipcMain.handle('download-cancel', (_, { identifier }) => {
 ipcMain.handle('extract-archive', async (_, { filePath, identifier }) => {
   const settings   = loadSettings();
   const installDir = settings.installPath || DEFAULT_GAMES_DIR;
-  const destDir    = path.join(installDir, identifier);
+  const destDir    = path.join(installDir, sanitizeFolderName(identifier));
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
   const ext    = filePath.toLowerCase();

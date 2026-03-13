@@ -539,6 +539,15 @@ async function init() {
     if (e.target === changelogModal) closeChangelog();
   });
 
+  // Home button
+  document.getElementById('btn-home').addEventListener('click', showHomeView);
+
+  // Reroll button
+  document.getElementById('home-btn-reroll').addEventListener('click', () => {
+    homeRandomGame = null;
+    renderHomeRandomPick(true);
+  });
+
   collections = await window.electronAPI.getCollections();
   renderCollectionFilter();
 
@@ -600,6 +609,7 @@ async function fetchGames() {
 
     library = await window.electronAPI.getLibrary();
     renderLibraryGrid();
+    showHomeView();
   } catch (e) {
     libraryGrid.innerHTML = `<p class="loading-msg error">Failed to load games: ${e.message}</p>`;
   }
@@ -675,7 +685,7 @@ function renderLibraryGrid() {
     }
 
     card.appendChild(textCol);
-    card.addEventListener('click', () => selectGame(game));
+    card.addEventListener('click', () => showDetailView(game));
     libraryGrid.appendChild(card);
   });
 }
@@ -1331,6 +1341,254 @@ async function onAddToCollection() {
 
 function closeAddCollectionModal() {
   document.getElementById('add-collection-modal').classList.add('hidden');
+}
+
+// ─── Home screen ─────────────────────────────────────────────────────────────
+
+let currentView = 'home'; // 'home' | 'detail'
+let homeFeaturedGame = null;
+let homeRandomGame   = null;
+
+function showHomeView() {
+  currentView = 'home';
+  document.getElementById('home-view').classList.remove('hidden');
+  document.getElementById('detail-panel').classList.add('hidden');
+  document.getElementById('hero').style.display = 'none';
+  document.getElementById('btn-home').classList.add('active');
+  renderHomeScreen();
+}
+
+function showDetailView(game) {
+  currentView = 'detail';
+  document.getElementById('home-view').classList.add('hidden');
+  document.getElementById('detail-panel').classList.remove('hidden');
+  document.getElementById('hero').style.display = '';
+  document.getElementById('btn-home').classList.remove('active');
+  selectGame(game);
+}
+
+function renderHomeScreen() {
+  renderHomeBanner();
+  renderHomeStats();
+  renderHomeRecentRow();
+  renderHomePlayedRow();
+  renderHomeRandomPick();
+}
+
+// ── Banner ────────────────────────────────────────────────────────────────────
+
+function renderHomeBanner() {
+  if (!allGames.length) return;
+
+  // Pick a random game that has a hero image bundled if possible,
+  // otherwise just any random game.
+  if (!homeFeaturedGame) {
+    homeFeaturedGame = allGames[Math.floor(Math.random() * allGames.length)];
+  }
+  const game = homeFeaturedGame;
+  const title = getTitle(game);
+
+  document.getElementById('home-banner-title').textContent = title;
+
+  // Try local hero first, fall back to archive.org thumb
+  const localHero = getLocalHero(game.identifier);
+  const bannerBg  = document.getElementById('home-banner-bg');
+  const bannerLocal = document.getElementById('home-banner-local');
+
+  if (localHero) {
+    const testImg = new Image();
+    testImg.onload = () => {
+      bannerLocal.src = localHero;
+      bannerLocal.classList.remove('hidden');
+      bannerBg.style.backgroundImage = 'none';
+    };
+    testImg.onerror = () => {
+      bannerLocal.classList.add('hidden');
+      bannerBg.style.backgroundImage = `url("${getThumb(game)}") `;
+    };
+    testImg.src = localHero;
+  } else {
+    bannerLocal.classList.add('hidden');
+    bannerBg.style.backgroundImage = `url("${getThumb(game)}") `;
+  }
+
+  const btnView = document.getElementById('home-banner-btn');
+  // Remove old listener by replacing the node
+  const newBtn = btnView.cloneNode(true);
+  btnView.parentNode.replaceChild(newBtn, btnView);
+  newBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showDetailView(game);
+  });
+  document.getElementById('home-banner').onclick = () => showDetailView(game);
+}
+
+// ── Stats strip ───────────────────────────────────────────────────────────────
+
+function renderHomeStats() {
+  const libEntries  = Object.values(library);
+  const installed   = libEntries.filter(e => e.install_dir).length;
+  const favorites   = libEntries.filter(e => e.is_favorite).length;
+  document.getElementById('stat-total').textContent       = allGames.length || '—';
+  document.getElementById('stat-installed').textContent   = installed;
+  document.getElementById('stat-favorites').textContent   = favorites;
+  document.getElementById('stat-collections').textContent = collections.length;
+}
+
+// ── Recently Added row ────────────────────────────────────────────────────────
+
+function renderHomeRecentRow() {
+  const row = document.getElementById('home-row-recent');
+  row.innerHTML = '';
+
+  // Sort by addeddate descending, take top 20
+  const recent = [...allGames]
+    .filter(g => g.addeddate)
+    .sort((a, b) => new Date(b.addeddate) - new Date(a.addeddate))
+    .slice(0, 20);
+
+  if (!recent.length) {
+    row.innerHTML = '<span style="color:var(--text-dim);font-size:12px;">No data available.</span>';
+    return;
+  }
+
+  recent.forEach(game => row.appendChild(makeHomeGameCard(game, true)));
+}
+
+// ── Recently Played row ───────────────────────────────────────────────────────
+
+function renderHomePlayedRow() {
+  const section = document.getElementById('home-section-played');
+  const row     = document.getElementById('home-row-played');
+  row.innerHTML = '';
+
+  // Games with playtime, sorted by most recently played (last_played_at if we
+  // have it, otherwise just by playtime as a proxy)
+  const played = Object.entries(library)
+    .filter(([, e]) => e.playtime_secs > 0)
+    .sort(([, a], [, b]) => (b.last_played_at || 0) - (a.last_played_at || 0))
+    .slice(0, 20)
+    .map(([id]) => allGames.find(g => g.identifier === id))
+    .filter(Boolean);
+
+  if (!played.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  played.forEach(game => row.appendChild(makeHomeGameCard(game, false)));
+}
+
+// ── Home game card builder ────────────────────────────────────────────────────
+
+function makeHomeGameCard(game, showDate) {
+  const card = document.createElement('div');
+  card.className = 'home-game-card';
+
+  const img = document.createElement('img');
+  img.className = 'home-game-thumb';
+  img.src       = getThumb(game);
+  img.alt       = getTitle(game);
+  img.loading   = 'lazy';
+
+  const label = document.createElement('span');
+  label.className   = 'home-game-label';
+  label.textContent = getTitle(game);
+
+  card.appendChild(img);
+  card.appendChild(label);
+
+  if (showDate && game.addeddate) {
+    const dateEl = document.createElement('span');
+    dateEl.className   = 'home-game-date';
+    const d = new Date(game.addeddate);
+    dateEl.textContent = d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    card.appendChild(dateEl);
+  }
+
+  card.addEventListener('click', () => showDetailView(game));
+  return card;
+}
+
+// ── Random Pick ───────────────────────────────────────────────────────────────
+
+function pickRandomGame() {
+  // Prefer installed unplayed games; fallback to any installed; fallback to any game
+  const installed = allGames.filter(g => library[g.identifier]?.install_dir);
+  const unplayed  = installed.filter(g => !library[g.identifier]?.playtime_secs);
+  const pool = unplayed.length ? unplayed : installed.length ? installed : allGames;
+  return pool[Math.floor(Math.random() * pool.length)] || null;
+}
+
+function renderHomeRandomPick(forceNew) {
+  const section = document.getElementById('home-section-random');
+  const wrap    = document.getElementById('home-random-card');
+  wrap.innerHTML = '';
+
+  if (forceNew || !homeRandomGame) homeRandomGame = pickRandomGame();
+  const game = homeRandomGame;
+
+  if (!game) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  const libEntry  = library[game.identifier];
+  const installed = !!libEntry?.install_dir;
+  const title     = getTitle(game);
+  const year      = game.date ? new Date(game.date).getFullYear() : null;
+
+  const card = document.createElement('div');
+  card.className = 'random-pick';
+
+  const img = document.createElement('img');
+  img.className = 'random-pick-thumb';
+  img.src       = getThumb(game);
+  img.alt       = title;
+
+  const info = document.createElement('div');
+  info.className = 'random-pick-info';
+
+  const titleEl = document.createElement('div');
+  titleEl.className   = 'random-pick-title';
+  titleEl.textContent = title;
+
+  const metaEl = document.createElement('div');
+  metaEl.className   = 'random-pick-meta';
+  metaEl.textContent = year || '';
+
+  info.appendChild(titleEl);
+  if (year) info.appendChild(metaEl);
+
+  if (installed) {
+    const badge = document.createElement('span');
+    badge.className   = 'random-pick-installed';
+    badge.textContent = 'Installed';
+    info.appendChild(badge);
+  }
+
+  const actionBtn = document.createElement('button');
+  if (installed) {
+    actionBtn.className   = 'random-pick-launch';
+    actionBtn.textContent = '▶ Launch';
+    actionBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showDetailView(game);
+      // Give selectGame a tick to run, then trigger launch
+      setTimeout(() => onLaunch(), 100);
+    });
+  } else {
+    actionBtn.className   = 'random-pick-launch';
+    actionBtn.textContent = 'View Game';
+    actionBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showDetailView(game);
+    });
+  }
+
+  card.appendChild(img);
+  card.appendChild(info);
+  card.appendChild(actionBtn);
+  card.addEventListener('click', () => showDetailView(game));
+  wrap.appendChild(card);
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────

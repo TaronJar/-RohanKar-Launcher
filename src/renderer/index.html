@@ -43,7 +43,10 @@
     <!-- Sidebar -->
     <aside id="sidebar">
       <div id="sidebar-top">
-        <input id="search-input" type="text" placeholder="Search games…" />
+        <div id="sidebar-search-row">
+          <button id="btn-home" title="Home">🏠</button>
+          <input id="search-input" type="text" placeholder="Search games…" />
+        </div>
         <select id="sort-filter">
           <option value="az">Title A → Z</option>
           <option value="za">Title Z → A</option>
@@ -80,6 +83,58 @@
           <h1 id="hero-title">Select a game</h1>
         </div>
       </div>
+
+      <!-- Home screen -->
+      <div id="home-view">
+
+        <!-- Featured banner -->
+        <div id="home-banner">
+          <div id="home-banner-bg"></div>
+          <img id="home-banner-local" class="hidden" alt="" />
+          <div id="home-banner-overlay">
+            <div id="home-banner-label">Featured</div>
+            <h2 id="home-banner-title"></h2>
+            <button id="home-banner-btn">View Game</button>
+          </div>
+        </div>
+
+        <!-- Scrollable content -->
+        <div id="home-content">
+
+          <!-- Stats strip -->
+          <div id="home-stats">
+            <div class="home-stat"><span class="home-stat-num" id="stat-total">—</span><span class="home-stat-label">Games Available</span></div>
+            <div class="home-stat-divider"></div>
+            <div class="home-stat"><span class="home-stat-num" id="stat-installed">—</span><span class="home-stat-label">Installed</span></div>
+            <div class="home-stat-divider"></div>
+            <div class="home-stat"><span class="home-stat-num" id="stat-favorites">—</span><span class="home-stat-label">Favorites</span></div>
+            <div class="home-stat-divider"></div>
+            <div class="home-stat"><span class="home-stat-num" id="stat-collections">—</span><span class="home-stat-label">Collections</span></div>
+          </div>
+
+          <!-- Recently Added -->
+          <div class="home-section">
+            <h3 class="home-section-title">Recently Added</h3>
+            <div class="home-row" id="home-row-recent"></div>
+          </div>
+
+          <!-- Recently Played -->
+          <div class="home-section" id="home-section-played">
+            <h3 class="home-section-title">Recently Played</h3>
+            <div class="home-row" id="home-row-played"></div>
+          </div>
+
+          <!-- Random Pick -->
+          <div class="home-section" id="home-section-random">
+            <div class="home-section-header">
+              <h3 class="home-section-title">Play Something</h3>
+              <button id="home-btn-reroll" title="Pick another">↺ Reroll</button>
+            </div>
+            <div id="home-random-card"></div>
+          </div>
+
+        </div>
+      </div><!-- /home-view -->
 
       <!-- Detail panel -->
       <div id="detail-panel" class="hidden">
