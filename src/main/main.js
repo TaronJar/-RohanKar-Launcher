@@ -140,6 +140,8 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   setupAutoUpdater();
+  // Validate installs on every launch — clears DB entries whose folders were deleted
+  validateInstalls();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
@@ -376,16 +378,33 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
   const destDir     = path.join(downloadDir, sanitizeFolderName(identifier));
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
-  // fileName from archive.org can contain subdirectory paths (e.g. "SubDir/Game.7z").
-  // Flatten to just the basename so we always write into destDir directly.
   const safeFileName = path.basename(fileName);
-  const destFile = path.join(destDir, safeFileName);
+  const destFile     = path.join(destDir, safeFileName);
 
   return new Promise((resolve) => {
-    const doRequest = (url, redirectCount) => {
-      if (redirectCount > 10) return resolve({ ok: false, error: 'Too many redirects' });
+    // Track whether cancel has been called so we resolve exactly once
+    let cancelled = false;
 
-      // Support both http and https
+    // Register a cancel hook immediately — before any HTTP request is made.
+    // This lets download-cancel work even during redirects or slow connections.
+    activeDownloads.set(identifier, {
+      cancel: () => {
+        if (cancelled) return;
+        cancelled = true;
+        activeDownloads.delete(identifier);
+        resolve({ ok: false, error: 'Cancelled' });
+      },
+      req:  null,
+      file: null,
+    });
+
+    const doRequest = (url, redirectCount) => {
+      if (cancelled) return;
+      if (redirectCount > 10) {
+        activeDownloads.delete(identifier);
+        return resolve({ ok: false, error: 'Too many redirects' });
+      }
+
       const isHttps  = url.startsWith('https');
       const protocol = isHttps ? https : http;
 
@@ -393,13 +412,14 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
         headers: { 'User-Agent': 'RohanKar-Launcher/0.4' },
         timeout: 30000,
       }, (res) => {
+        if (cancelled) { res.resume(); return; }
+
         const { statusCode, headers } = res;
 
         // Follow redirects
-        if ((statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308) && headers.location) {
+        if ([301,302,303,307,308].includes(statusCode) && headers.location) {
           req.destroy();
-          res.resume(); // drain response body
-          // Resolve relative redirects
+          res.resume();
           let next = headers.location;
           if (next.startsWith('/')) {
             const base = new URL(url);
@@ -411,6 +431,7 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
 
         if (statusCode !== 200) {
           res.resume();
+          activeDownloads.delete(identifier);
           return resolve({ ok: false, error: `HTTP ${statusCode}` });
         }
 
@@ -418,17 +439,17 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
         let received = 0;
         const file   = fs.createWriteStream(destFile);
 
-        activeDownloads.set(identifier, { req, file });
+        // Update the active download entry with the live req and file
+        const entry = activeDownloads.get(identifier);
+        if (entry) { entry.req = req; entry.file = file; }
 
         res.on('data', chunk => {
+          if (cancelled) return;
           received += chunk.length;
           if (total > 0) {
             try {
               if (!event.sender.isDestroyed()) {
-                event.sender.send('download-progress', {
-                  identifier,
-                  percent: Math.round(received / total * 100),
-                });
+                event.sender.send('download-progress', { identifier, percent: Math.round(received / total * 100) });
               }
             } catch {}
           }
@@ -437,24 +458,33 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
         res.pipe(file);
 
         file.on('finish', () => {
+          if (cancelled) return;
           file.close();
           activeDownloads.delete(identifier);
           resolve({ ok: true, filePath: destFile });
         });
 
         file.on('error', err => {
+          if (cancelled) return;
           fs.unlink(destFile, () => {});
           activeDownloads.delete(identifier);
           resolve({ ok: false, error: err.message });
         });
       });
 
+      // Store req so cancel can destroy it
+      const entry = activeDownloads.get(identifier);
+      if (entry) entry.req = req;
+
       req.on('timeout', () => {
+        if (cancelled) return;
         req.destroy();
+        activeDownloads.delete(identifier);
         resolve({ ok: false, error: 'Connection timed out' });
       });
 
       req.on('error', err => {
+        if (cancelled) return; // cancelled — already resolved, ignore
         activeDownloads.delete(identifier);
         resolve({ ok: false, error: err.message });
       });
@@ -467,8 +497,11 @@ ipcMain.handle('download-start', async (event, { identifier, downloadUrl, fileNa
 ipcMain.handle('download-cancel', (_, { identifier }) => {
   const dl = activeDownloads.get(identifier);
   if (dl) {
-    try { dl.req.destroy(); } catch {}
-    try { dl.file.close();  } catch {}
+    // Call the cancel hook — resolves the promise and cleans up
+    if (typeof dl.cancel === 'function') dl.cancel();
+    // Also destroy req/file if they exist
+    try { dl.req?.destroy(); }  catch {}
+    try { dl.file?.close();  }  catch {}
     activeDownloads.delete(identifier);
   }
   return { ok: true };
@@ -543,33 +576,7 @@ const IGNORED_SUBDIRS = new Set(['extras', 'extra', 'bonus', 'soundtrack', 'manu
 
 ipcMain.handle('find-exes', (_, { installDir }) => {
   try {
-    const rootEntries = fs.readdirSync(installDir, { withFileTypes: true });
-
-    // Find the game subfolder: first subdir that isn't an ignored folder
-    const gameSubdir = rootEntries.find(
-      e => e.isDirectory() && !IGNORED_SUBDIRS.has(e.name.toLowerCase())
-    );
-
-    // The folder to scan: game subfolder if found, otherwise the install root itself
-    const gameDir = gameSubdir
-      ? path.join(installDir, gameSubdir.name)
-      : installDir;
-
-    // If the game folder contains a 'bin' subfolder, scan that instead.
-    // e.g. American McGee's Alice - Remastered\bin\Alice.exe
-    const binDir = path.join(gameDir, 'bin');
-    const scanDir = fs.existsSync(binDir) && fs.statSync(binDir).isDirectory()
-      ? binDir
-      : gameDir;
-
-    // Collect .exe files directly in scanDir only (no recursion)
-    const results = [];
-    for (const entry of fs.readdirSync(scanDir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.exe')) {
-        results.push(path.join(scanDir, entry.name));
-      }
-    }
-    return results;
+    return findExesInDir(installDir);
   } catch { return []; }
 });
 
@@ -667,6 +674,180 @@ ipcMain.handle('read-readme', (_, { installDir }) => {
   } catch (e) {
     return { ok: false, error: e.message, text: null };
   }
+});
+
+// ─── Startup: validate installs + scan for pre-existing games ───────────────────
+//
+// Called once after the window is ready. Two jobs:
+//   1. Validate — any DB row with install_dir that no longer exists on disk gets cleared.
+//   2. Scan — look in the install/download dirs for folders matching known identifiers
+//      that aren't already registered, and auto-register them.
+
+// Walk a directory tree looking for .exe files.
+// Strategy: scan the current directory for .exe files. If found, return them.
+// If not, recurse into non-ignored subdirectories (breadth-first by level) and
+// return the exes from the FIRST level that contains any. This handles installs
+// that are nested arbitrarily deep (e.g. identifier/ -> Game Name/ -> Game Name/ -> .exe)
+// Depth limit prevents runaway recursion on large installs.
+function findExesInDir(installDir, _depth) {
+  const MAX_DEPTH = 5;
+  const depth = _depth || 0;
+  if (depth > MAX_DEPTH) return [];
+
+  try {
+    let entries;
+    try { entries = fs.readdirSync(installDir, { withFileTypes: true }); }
+    catch { return []; }
+
+    // Check for a 'bin' subfolder first — common pattern for some games
+    const binEntry = entries.find(
+      e => e.isDirectory() && e.name.toLowerCase() === 'bin'
+    );
+    if (binEntry) {
+      const binExes = exesInDir(path.join(installDir, binEntry.name));
+      if (binExes.length) return binExes;
+    }
+
+    // Collect .exe files directly in this folder
+    const localExes = exesInDir(installDir);
+    if (localExes.length) return localExes;
+
+    // No exes here — recurse into non-ignored subdirectories
+    const subdirs = entries.filter(
+      e => e.isDirectory() && !IGNORED_SUBDIRS.has(e.name.toLowerCase())
+    );
+
+    for (const sub of subdirs) {
+      const found = findExesInDir(path.join(installDir, sub.name), depth + 1);
+      if (found.length) return found;
+    }
+
+    return [];
+  } catch { return []; }
+}
+
+// Return .exe files directly inside a single directory (no recursion)
+function exesInDir(dir) {
+  try {
+    const results = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.exe')) {
+        results.push(path.join(dir, entry.name));
+      }
+    }
+    return results;
+  } catch { return []; }
+}
+
+function validateInstalls() {
+  if (!db) return { cleared: 0 };
+  const rows = db.prepare('SELECT identifier, install_dir FROM games WHERE install_dir IS NOT NULL').all();
+  let cleared = 0;
+  for (const row of rows) {
+    if (!fs.existsSync(row.install_dir)) {
+      db.prepare('UPDATE games SET install_dir = NULL, exe_path = NULL WHERE identifier = ?').run(row.identifier);
+      console.log(`[validate] Cleared missing install: ${row.identifier}`);
+      cleared++;
+    }
+  }
+  if (cleared > 0) console.log(`[validate] Cleared ${cleared} missing installs`);
+  return { cleared };
+}
+
+// Sanitize a game title into a safe Windows folder name the same way a browser
+// download would (strips illegal chars, trims trailing dots/spaces).
+function sanitizeTitle(title) {
+  return String(title)
+    .replace(/[<>:"/\\|?*]/g, '_')   // replace Windows-illegal chars with _
+    .replace(/[.\s]+$/, '')           // strip trailing dots and spaces
+    .trim();
+}
+
+// Build a lookup: sanitized-title (lowercase) → original title
+// so we can do case-insensitive folder-name matching.
+function buildTitleLookup(titleMap) {
+  const lookup = {}; // normalizedTitle → { original, identifier }
+  for (const [title, identifier] of Object.entries(titleMap || {})) {
+    const normalized = sanitizeTitle(title).toLowerCase();
+    if (normalized) lookup[normalized] = { original: title, identifier };
+  }
+  return lookup;
+}
+
+// Scan a directory for pre-existing game installs.
+// knownIdentifiers = array of identifier strings from the renderer.
+// titleMap         = { gameTitle: identifier } for title-based matching.
+// Returns { found: [ { identifier, installDir, exePath, matchedBy } ] }
+ipcMain.handle('scan-for-games', (_, { scanDir, knownIdentifiers, titleMap }) => {
+  if (!db || !scanDir || !fs.existsSync(scanDir)) return { found: [] };
+
+  const identifierSet  = new Set(knownIdentifiers);
+  const titleLookup    = buildTitleLookup(titleMap);
+  const found          = [];
+
+  let entries;
+  try { entries = fs.readdirSync(scanDir, { withFileTypes: true }); }
+  catch { return { found: [] }; }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const folderName = entry.name;
+    const folderPath = path.join(scanDir, folderName);
+
+    let matchedId  = null;
+    let matchedBy  = null;
+
+    // ─ Pass 1: exact identifier match ──────────────────────────────────────
+    if (identifierSet.has(folderName)) {
+      matchedId = folderName;
+      matchedBy = 'identifier';
+    }
+
+    // ─ Pass 2: sanitized identifier match ──────────────────────────────
+    if (!matchedId) {
+      for (const id of identifierSet) {
+        if (sanitizeFolderName(id) === folderName) {
+          matchedId = id;
+          matchedBy = 'identifier-sanitized';
+          break;
+        }
+      }
+    }
+
+    // ─ Pass 3: game title match (case-insensitive) ──────────────────────
+    // Handles folders named "Zoo Tycoon - Complete Collection" downloaded directly
+    // from archive.org, where the folder name mirrors the game title not the identifier.
+    if (!matchedId && titleLookup) {
+      const normalizedFolder = sanitizeTitle(folderName).toLowerCase();
+      const hit = titleLookup[normalizedFolder];
+      if (hit) {
+        matchedId = hit.identifier;
+        matchedBy = 'title';
+      }
+    }
+
+    if (!matchedId) continue;
+
+    // Skip if already registered with a valid install_dir
+    const existing = db.prepare('SELECT install_dir FROM games WHERE identifier = ?').get(matchedId);
+    if (existing?.install_dir && fs.existsSync(existing.install_dir)) continue;
+
+    // Find an exe
+    const exes    = findExesInDir(folderPath);
+    const exePath = exes.length === 1 ? exes[0] : null;
+
+    // Register it
+    db.prepare(`
+      INSERT OR IGNORE INTO games (identifier, added_at) VALUES (?, ?)
+    `).run(matchedId, Date.now());
+    db.prepare('UPDATE games SET install_dir = ?, exe_path = ? WHERE identifier = ?')
+      .run(folderPath, exePath, matchedId);
+
+    console.log(`[scan] Found pre-existing install (${matchedBy}): ${matchedId} → ${folderPath}`);
+    found.push({ identifier: matchedId, installDir: folderPath, exePath, matchedBy });
+  }
+
+  return { found };
 });
 
 // ─── Install / Delete ─────────────────────────────────────────────────────────

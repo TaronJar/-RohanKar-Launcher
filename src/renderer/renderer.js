@@ -35,6 +35,10 @@ let activeCollection   = '';
 // status: 'downloading' | 'extracting' | 'done' | 'error'
 const downloadQueue = new Map();
 
+// Download history: session-persistent record of all downloads
+// { identifier, title, status, percent, startedAt, finishedAt }
+const downloadHistory = [];
+
 // ─── Controller support detection ─────────────────────────────────────────────
 // Matches both "Controller Support: Yes" and "Controller Support - Yes"
 const CONTROLLER_RE = /controller\s+support\s*[:\-]\s*yes/i;
@@ -477,6 +481,19 @@ async function init() {
     window._heroBasePath = null;
   }
 
+  document.getElementById('btn-downloads').addEventListener('click', openDownloadsModal);
+  document.getElementById('btn-close-downloads').addEventListener('click', closeDownloadsModal);
+  document.getElementById('btn-clear-download-history').addEventListener('click', () => {
+    // Remove only completed/errored entries
+    const keep = downloadHistory.filter(e => e.status === 'downloading' || e.status === 'extracting');
+    downloadHistory.length = 0;
+    keep.forEach(e => downloadHistory.push(e));
+    renderDownloadsModal();
+  });
+  document.getElementById('downloads-modal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('downloads-modal')) closeDownloadsModal();
+  });
+
   settingsBtn.addEventListener('click', openSettings);
   btnAbout.addEventListener('click', openAbout);
   btnCloseAbout.addEventListener('click', closeAbout);
@@ -499,11 +516,15 @@ async function init() {
   });
   document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
 
-  // Download progress — update both inline bar and queue panel
+  // Scan for pre-existing installs
+  document.getElementById('btn-scan-games').addEventListener('click', onScanForGames);
+
+  // Download progress
   window.electronAPI.onDownloadProgress(({ identifier, percent }) => {
-    if (downloadQueue.has(identifier)) {
-      dqSet(identifier, { percent });
-    }
+    // Strictly ignore if not in queue or not actively downloading
+    const entry = downloadQueue.get(identifier);
+    if (!entry || entry.status !== 'downloading') return;
+    dqSet(identifier, { percent });
     if (selectedGame?.identifier === identifier) {
       progressBar.style.width  = percent + '%';
       progressText.textContent = percent + '%';
@@ -661,6 +682,59 @@ function applyInstalledBadgeSetting() {
   else                    libraryGrid.classList.add('hide-installed-badge');
 }
 
+async function onScanForGames() {
+  const resultEl = document.getElementById('scan-result');
+  const btn      = document.getElementById('btn-scan-games');
+  if (!allGames.length) {
+    resultEl.textContent = 'Games not loaded yet — try again in a moment.';
+    resultEl.className   = 'none';
+    return;
+  }
+
+  // Determine scan directory: use install path from settings, then download path, then default
+  const s       = await window.electronAPI.getSettings();
+  const scanDir = s.installPath || s.downloadPath || null;
+  if (!scanDir) {
+    resultEl.textContent = 'Set an Install Folder in settings first.';
+    resultEl.className   = 'none';
+    return;
+  }
+
+  btn.disabled     = true;
+  btn.textContent  = '⏳ Scanning…';
+  resultEl.textContent = '';
+  resultEl.className   = '';
+
+  const knownIdentifiers = allGames.map(g => g.identifier);
+
+  // Build title → identifier map for matching folders named after game titles
+  // (e.g. "Zoo Tycoon - Complete Collection" downloaded directly from archive.org)
+  const titleMap = {};
+  for (const game of allGames) {
+    const t = Array.isArray(game.title) ? game.title[0] : game.title;
+    if (t && String(t).trim()) titleMap[String(t).trim()] = game.identifier;
+  }
+
+  const result = await window.electronAPI.scanForGames({ scanDir, knownIdentifiers, titleMap });
+
+  btn.disabled    = false;
+  btn.textContent = '🔍 Scan Install Folder';
+
+  if (!result.found.length) {
+    resultEl.textContent = 'No new games found.';
+    resultEl.className   = 'none';
+    return;
+  }
+
+  // Refresh library so the UI reflects the newly registered games
+  library = await window.electronAPI.getLibrary();
+  renderLibraryGrid();
+  renderHomeStats();
+
+  resultEl.textContent = `✓ Found ${result.found.length} game${result.found.length !== 1 ? 's' : ''}!`;
+  resultEl.className   = '';
+}
+
 // ─── Fetch games from archive.org ─────────────────────────────────────────────
 async function fetchGames() {
   renderSkeletonCards(8);
@@ -803,81 +877,240 @@ function renderLibraryGrid() {
   });
 }
 
-// ─── Download queue UI ────────────────────────────────────────────────────────
-function renderDownloadQueue() {
-  const panel = document.getElementById('download-queue');
-  if (!panel) return;
-  panel.innerHTML = '';
-
-  for (const [identifier, entry] of downloadQueue) {
-    const item = document.createElement('div');
-    item.className = 'dq-item'
-      + (entry.status === 'done'       ? ' done'       : '')
-      + (entry.status === 'error'      ? ' error'      : '')
-      + (entry.status === 'extracting' ? ' extracting' : '');
-    item.id = `dq-${identifier}`;
-
-    const statusText =
-      entry.status === 'downloading' ? `${entry.percent}%` :
-      entry.status === 'extracting'  ? 'Extracting…'       :
-      entry.status === 'done'        ? '✓ Done'            : 'Error';
-
-    const header = document.createElement('div');
-    header.className = 'dq-header';
-
-    const titleEl = document.createElement('span');
-    titleEl.className   = 'dq-title';
-    titleEl.textContent = entry.title;
-
-    const statusEl = document.createElement('span');
-    statusEl.className   = 'dq-status';
-    statusEl.textContent = statusText;
-
-    header.appendChild(titleEl);
-    header.appendChild(statusEl);
-
-    // Cancel button only during download
-    if (entry.status === 'downloading') {
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className   = 'dq-cancel';
-      cancelBtn.textContent = '✕';
-      cancelBtn.title       = 'Cancel';
-      cancelBtn.addEventListener('click', async () => {
-        await window.electronAPI.downloadCancel({ identifier });
-        downloadQueue.delete(identifier);
-        renderDownloadQueue();
-        library = await window.electronAPI.getLibrary();
-        if (selectedGame?.identifier === identifier) refreshButtonStates();
-        renderLibraryGrid();
-      });
-      header.appendChild(cancelBtn);
-    }
-
-    const barBg = document.createElement('div');
-    barBg.className = 'dq-bar-bg';
-    const bar = document.createElement('div');
-    bar.className = 'dq-bar';
-    bar.style.width = (entry.status === 'done' || entry.status === 'extracting') ? '100%' : `${entry.percent}%`;
-    barBg.appendChild(bar);
-
-    item.appendChild(header);
-    item.appendChild(barBg);
-    panel.appendChild(item);
-  }
-}
+// ─── Download queue UI (toast panel removed — downloads modal handles display) ─
+function renderDownloadQueue() { /* no-op — toast panel removed */ }
 
 function dqSet(identifier, fields) {
   const existing = downloadQueue.get(identifier) || {};
-  downloadQueue.set(identifier, { ...existing, ...fields });
+  const updated  = { ...existing, ...fields };
+  downloadQueue.set(identifier, updated);
   renderDownloadQueue();
+  // Sync to history
+  syncToHistory(identifier, updated);
+  updateDownloadsButton();
 }
 
 function dqDone(identifier) {
-  dqSet(identifier, { status: 'done', percent: 100 });
+  dqSet(identifier, { status: 'done', percent: 100, finishedAt: Date.now() });
   setTimeout(() => {
     downloadQueue.delete(identifier);
     renderDownloadQueue();
+    updateDownloadsButton();
   }, 3000);
+}
+
+function syncToHistory(identifier, entry) {
+  const idx = downloadHistory.findIndex(h => h.identifier === identifier);
+  const record = {
+    identifier,
+    title:      entry.title || identifier,
+    status:     entry.status,
+    percent:    entry.percent ?? 0,
+    startedAt:  entry.startedAt || Date.now(),
+    finishedAt: entry.finishedAt || null,
+  };
+  if (idx >= 0) downloadHistory[idx] = record;
+  else          downloadHistory.unshift(record);
+  // If downloads modal is open, update progress bars in-place rather than
+  // re-rendering the whole modal (re-rendering destroys cancel button listeners)
+  if (!document.getElementById('downloads-modal').classList.contains('hidden')) {
+    updateDownloadsModalProgress(identifier, entry);
+  }
+}
+
+// Update just the progress/status of an active item without destroying the DOM
+function updateDownloadsModalProgress(identifier, entry) {
+  const activeList = document.getElementById('downloads-active-list');
+  if (!activeList) return;
+  // Find the existing item row for this identifier
+  const item = activeList.querySelector(`[data-identifier="${CSS.escape(identifier)}"]`);
+  if (!item) {
+    // Item not rendered yet — do a full re-render (e.g. new download started)
+    renderDownloadsModal();
+    return;
+  }
+  // Update bar width
+  const bar = item.querySelector('.dm-bar');
+  if (bar) bar.style.width = `${entry.percent ?? 0}%`;
+  // Update meta text
+  const meta = item.querySelector('.dm-meta');
+  if (meta && entry.status !== 'extracting') meta.textContent = `${entry.percent ?? 0}%`;
+  else if (meta && entry.status === 'extracting') meta.textContent = 'Extracting…';
+  // Update status label
+  const status = item.querySelector('.dm-status');
+  if (status) status.textContent = entry.status === 'extracting' ? 'Extracting' : `${entry.percent ?? 0}%`;
+}
+
+function updateDownloadsButton() {
+  const btn    = document.getElementById('btn-downloads');
+  const active = [...downloadQueue.values()].filter(
+    e => e.status === 'downloading' || e.status === 'extracting'
+  );
+  // Remove old badge
+  btn.querySelector('.dl-badge')?.remove();
+  if (active.length > 0) {
+    btn.classList.add('has-active');
+    const badge = document.createElement('span');
+    badge.className   = 'dl-badge';
+    badge.textContent = active.length;
+    btn.appendChild(badge);
+  } else {
+    btn.classList.remove('has-active');
+  }
+}
+
+function openDownloadsModal() {
+  renderDownloadsModal();
+  document.getElementById('downloads-modal').classList.remove('hidden');
+}
+
+function closeDownloadsModal() {
+  document.getElementById('downloads-modal').classList.add('hidden');
+}
+
+function renderDownloadsModal() {
+  // ─ Active section ─
+  const activeSection = document.getElementById('downloads-active-section');
+  const activeList    = document.getElementById('downloads-active-list');
+  const active = [...downloadQueue.values()].filter(
+    e => e.status === 'downloading' || e.status === 'extracting'
+  );
+
+  if (active.length === 0) {
+    activeSection.classList.add('hidden');
+  } else {
+    activeSection.classList.remove('hidden');
+    activeList.innerHTML = '';
+    active.forEach(entry => {
+      activeList.appendChild(makeDmItem(entry, true));
+    });
+  }
+
+  // ─ History section ─
+  const historyList  = document.getElementById('downloads-history-list');
+  const countEl      = document.getElementById('downloads-history-count');
+  const history = downloadHistory.filter(
+    e => e.status !== 'downloading' && e.status !== 'extracting'
+  );
+
+  countEl.textContent = history.length ? `(${history.length})` : '';
+  historyList.innerHTML = '';
+
+  if (!history.length) {
+    historyList.innerHTML = '<div class="dm-empty">No downloads this session yet.</div>';
+    return;
+  }
+  history.forEach(entry => {
+    historyList.appendChild(makeDmItem(entry, false));
+  });
+}
+
+function makeDmItem(entry, isActive) {
+  const game = allGames.find(g => g.identifier === entry.identifier);
+  const item = document.createElement('div');
+  item.className = 'dm-item'
+    + (entry.status === 'done'  ? ' done'  : '')
+    + (entry.status === 'error' ? ' error' : '')
+    + (isActive                 ? ' active': '');
+  item.dataset.identifier = entry.identifier;
+
+  // Thumbnail
+  const thumb = document.createElement('img');
+  thumb.className = 'dm-thumb';
+  thumb.alt       = entry.title;
+  if (game) applyThumb(thumb, entry.identifier);
+  else      thumb.style.opacity = '0.3';
+
+  // Info column
+  const info = document.createElement('div');
+  info.className = 'dm-info';
+
+  const title = document.createElement('div');
+  title.className   = 'dm-title';
+  title.textContent = entry.title;
+
+  const meta = document.createElement('div');
+  meta.className = 'dm-meta';
+
+  if (isActive) {
+    const statusText = entry.status === 'extracting' ? 'Extracting…' : `${entry.percent ?? 0}%`;
+    meta.textContent = statusText;
+  } else {
+    const when = entry.finishedAt
+      ? new Date(entry.finishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
+    const statusLabel = entry.status === 'done' ? '✓ Installed' : '✕ Failed';
+    meta.innerHTML = `<span>${statusLabel}</span>${when ? `<span>${when}</span>` : ''}`;
+  }
+
+  const barWrap = document.createElement('div');
+  barWrap.className = 'dm-bar-wrap';
+  const bar = document.createElement('div');
+  bar.className = 'dm-bar';
+  bar.style.width = isActive
+    ? `${entry.percent ?? 0}%`
+    : entry.status === 'done' ? '100%' : `${entry.percent ?? 0}%`;
+  barWrap.appendChild(bar);
+
+  info.appendChild(title);
+  info.appendChild(meta);
+  if (isActive || entry.status === 'error') info.appendChild(barWrap);
+
+  // Status label
+  const status = document.createElement('span');
+  status.className = 'dm-status';
+  if (isActive) {
+    status.textContent = entry.status === 'extracting' ? 'Extracting' : `${entry.percent ?? 0}%`;
+  } else {
+    status.textContent = entry.status === 'done' ? 'Done' : 'Error';
+  }
+
+  item.appendChild(thumb);
+  item.appendChild(info);
+  item.appendChild(status);
+
+  // Cancel button for active
+  if (isActive) {
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className   = 'dm-cancel-btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.title       = 'Cancel download';
+    cancelBtn.addEventListener('click', async () => {
+      const id = entry.identifier;
+      console.log('[cancel-modal] clicked, id=', id, 'queue has:', downloadQueue.has(id), 'queue size:', downloadQueue.size);
+      // Delete from queue FIRST — before the IPC round-trip — so the
+      // onDownload async flow sees it's gone the moment downloadStart resolves
+      downloadQueue.delete(id);
+      const hi = downloadHistory.findIndex(h => h.identifier === id);
+      if (hi >= 0) {
+        downloadHistory[hi].status     = 'error';
+        downloadHistory[hi].finishedAt = Date.now();
+      }
+      renderDownloadQueue();
+      renderDownloadsModal();
+      updateDownloadsButton();
+      if (selectedGame?.identifier === id) {
+        progressWrap.classList.add('hidden');
+        refreshButtonStates();
+      }
+      renderLibraryGrid();
+      // Send cancel signal AFTER cleaning up state
+      await window.electronAPI.downloadCancel({ identifier: id });
+    });
+    item.appendChild(cancelBtn);
+  } else if (game) {
+    // View button for history items
+    const viewBtn = document.createElement('button');
+    viewBtn.className   = 'dm-view';
+    viewBtn.textContent = 'View';
+    viewBtn.addEventListener('click', () => {
+      closeDownloadsModal();
+      showDetailView(game);
+    });
+    item.appendChild(viewBtn);
+  }
+
+  return item;
 }
 
 // ─── Select game ──────────────────────────────────────────────────────────────
@@ -1139,7 +1372,7 @@ async function onDownload() {
   }
 
   // Add to queue
-  dqSet(identifier, { identifier, title, percent: 0, status: 'downloading' });
+  dqSet(identifier, { identifier, title, percent: 0, status: 'downloading', startedAt: Date.now() });
   btnDownload.disabled = true;
 
   // Keep inline progress bar for the currently-viewed game
@@ -1149,9 +1382,16 @@ async function onDownload() {
 
   const result = await window.electronAPI.downloadStart({ identifier, downloadUrl: fileUrl, fileName });
 
+  // If the entry was removed from the queue (user cancelled), don't process further
+  if (!downloadQueue.has(identifier)) {
+    progressWrap.classList.add('hidden');
+    refreshButtonStates();
+    return;
+  }
+
   if (!result.ok) {
-    dqSet(identifier, { status: 'error' });
-    setTimeout(() => { downloadQueue.delete(identifier); renderDownloadQueue(); }, 4000);
+    dqSet(identifier, { status: 'error', finishedAt: Date.now() });
+    setTimeout(() => { downloadQueue.delete(identifier); renderDownloadQueue(); updateDownloadsButton(); }, 4000);
     progressWrap.classList.add('hidden');
     refreshButtonStates();
     return;
@@ -1189,11 +1429,15 @@ async function onDownload() {
 async function onCancelDownload() {
   if (!selectedGame) return;
   const identifier = selectedGame.identifier;
-  await window.electronAPI.downloadCancel({ identifier });
+  // Delete from queue first so progress events can't re-insert it
   downloadQueue.delete(identifier);
+  const hi = downloadHistory.findIndex(h => h.identifier === identifier);
+  if (hi >= 0) { downloadHistory[hi].status = 'error'; downloadHistory[hi].finishedAt = Date.now(); }
   renderDownloadQueue();
+  updateDownloadsButton();
   progressWrap.classList.add('hidden');
   refreshButtonStates();
+  await window.electronAPI.downloadCancel({ identifier });
 }
 
 // ─── Launch ───────────────────────────────────────────────────────────────────
