@@ -56,6 +56,13 @@ try {
     );
   `);
 
+  // Migrate collections table — add color column if missing
+  const collectionCols = db.prepare('PRAGMA table_info(collections)').all().map(r => r.name);
+  if (!collectionCols.includes('color')) {
+    db.exec('ALTER TABLE collections ADD COLUMN color TEXT');
+    console.log('DB migration: added column collections.color');
+  }
+
   const existingCols = db.prepare('PRAGMA table_info(games)').all().map(r => r.name);
   const needed = {
     install_dir:   'TEXT',
@@ -253,6 +260,12 @@ ipcMain.handle('collections-rename', (_, { id, name }) => {
   } catch (e) {
     return { ok: false, error: e.message };
   }
+});
+
+ipcMain.handle('collections-set-color', (_, { id, color }) => {
+  if (!db) return { ok: false };
+  db.prepare('UPDATE collections SET color = ? WHERE id = ?').run(color || null, id);
+  return { ok: true };
 });
 
 ipcMain.handle('collections-add-game', (_, { collectionId, identifier }) => {

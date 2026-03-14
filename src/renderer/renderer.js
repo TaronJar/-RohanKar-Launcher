@@ -36,12 +36,44 @@ let activeCollection   = '';
 const downloadQueue = new Map();
 
 // ─── Controller support detection ─────────────────────────────────────────────
-const CONTROLLER_RE = /controller\s+support\s*:\s*yes/i;
+// Matches both "Controller Support: Yes" and "Controller Support - Yes"
+const CONTROLLER_RE = /controller\s+support\s*[:\-]\s*yes/i;
 function hasControllerSupport(game) {
   const desc = Array.isArray(game.description) ? game.description.join(' ') : (game.description || '');
   const subj = Array.isArray(game.subject)      ? game.subject.join(' ')      : (game.subject      || '');
   return CONTROLLER_RE.test(desc) || CONTROLLER_RE.test(subj);
 }
+
+// ─── Steam Deck compatibility detection ───────────────────────────────────────
+// Matches "Deck Compatibility: Verified" or "Deck Compatibility - Verified"
+const DECK_RE = /deck\s+compatibility\s*[:\-]\s*verified/i;
+function hasDeckVerified(game) {
+  const desc = Array.isArray(game.description) ? game.description.join(' ') : (game.description || '');
+  const subj = Array.isArray(game.subject)      ? game.subject.join(' ')      : (game.subject      || '');
+  return DECK_RE.test(desc) || DECK_RE.test(subj);
+}
+
+// ─── Widescreen Fix detection ────────────────────────────────────────────────
+const WIDESCREEN_RE = /widescreen\s*fix/i;
+function hasWidescreenFix(game) {
+  const desc = Array.isArray(game.description) ? game.description.join(' ') : (game.description || '');
+  const subj = Array.isArray(game.subject)      ? game.subject.join(' ')      : (game.subject      || '');
+  return WIDESCREEN_RE.test(desc) || WIDESCREEN_RE.test(subj);
+}
+
+// ─── FOV detection ────────────────────────────────────────────────────────────
+const FOV_RE = /\bfov\b/i;
+function hasFOV(game) {
+  const desc = Array.isArray(game.description) ? game.description.join(' ') : (game.description || '');
+  const subj = Array.isArray(game.subject)      ? game.subject.join(' ')      : (game.subject      || '');
+  return FOV_RE.test(desc) || FOV_RE.test(subj);
+}
+
+const SVG_WIDESCREEN = `<svg viewBox="6 15 52 34" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M53 23.3 Q52.65 19 48 19 L16 19 Q11.35 19 11.05 23.3 L8 26.2 8 24 Q8 16 16 16 L48 16 Q56 16 56 24 L56 26.2 53 23.3 M56.5 30.85 Q57 31.3 57 32 57 32.65 56.5 33.15 L49.85 39.55 Q49.35 40 48.65 40 47.95 40 47.5 39.55 47 39.05 47 38.4 L47 34 36.6 34 35.55 35.55 Q34.1 37 32 37 29.95 37 28.5 35.55 27.8 34.85 27.45 34 L17 34 17 38.4 Q17 39.05 16.5 39.55 16.05 40 15.35 40 14.65 40 14.15 39.55 L7.5 33.15 Q7 32.65 7 32 7 31.3 7.5 30.85 L14.15 24.45 Q14.65 24 15.35 24 16.05 24 16.5 24.45 17 24.9 17 25.6 L17 30 27.4 30 Q27.8 29.15 28.5 28.45 29.95 27 32 27 34.1 27 35.55 28.45 L36.6 30 47 30 47 25.6 Q47 24.9 47.5 24.45 47.95 24 48.65 24 49.35 24 49.85 24.45 L56.5 30.85 M56 37.8 L56 40 Q56 48 48 48 L16 48 Q8 48 8 40 L8 37.8 11.05 40.75 Q11.35 45 16 45 L48 45 Q52.65 45 53 40.75 L56 37.8"/></svg>`;
+
+const SVG_FOV = `<svg viewBox="7 12 50 40" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M30.85 13.5 Q31.3 13 32 13 32.65 13 33.15 13.5 L39.55 20.15 Q40 20.65 40 21.35 40 22.05 39.55 22.5 L39.5 22.55 Q39 23 38.4 23 L34 23 34 27.4 35.55 28.45 Q37 29.9 37 32 37 34.05 35.55 35.5 L34 36.6 34 41 38.4 41 Q39.05 41 39.55 41.5 L39.9 42 40 42.65 Q40 43.35 39.55 43.85 L33.15 50.5 Q32.65 51 32 51 31.3 51 30.85 50.5 L24.45 43.85 Q24 43.35 24 42.65 24 42.3 24.15 42 L24.45 41.5 Q24.9 41 25.6 41 L30 41 30 36.6 Q29.15 36.2 28.45 35.5 27 34.05 27 32 27 29.9 28.45 28.45 29.15 27.75 30 27.4 L30 23 25.6 23 24.5 22.55 24.45 22.5 Q24 22.05 24 21.35 24 20.65 24.45 20.15 L30.85 13.5 M43 42 Q42.8 40.45 41.7 39.4 40.35 38.05 38.65 38 L38.4 38 37.3 38 37.7 37.6 Q40 35.3 40 32 40 28.65 37.7 26.3 L37.65 26.3 37.3 26 38.4 26 38.65 26 Q40.35 25.95 41.7 24.6 L42.7 23.1 Q46.1 23.8 49.45 24.95 L45.55 42 43 42 M42.85 20.1 L41.8 18.15 41.7 18.05 40.3 16.6 Q47.2 17.6 54.05 20.2 55.1 20.6 55.6 21.6 56.2 22.55 55.9 23.65 L51.25 44 Q50.85 45.2 49.85 46.25 48.1 47.95 45.75 48 L39.75 48 41.7 45.95 41.8 45.85 42.4 45 45.75 45 Q46.85 44.95 47.7 44.2 L47.75 44.1 48.4 43.15 53 23.05 53 23 52.95 23 Q47.9 21.05 42.85 20.1 M23.7 16.6 L22.3 18.05 22.25 18.15 Q21.45 19 21.2 20.1 16.1 21.05 11.05 23 L11.05 23.05 15.65 43.15 16.25 44.1 16.35 44.2 Q17.2 44.95 18.35 45 L21.65 45 22.25 45.85 22.3 45.95 24.3 48 18.25 48 Q15.9 47.95 14.15 46.25 13.15 45.2 12.75 44 L8.1 23.65 Q7.8 22.55 8.4 21.6 8.9 20.6 9.95 20.2 16.8 17.6 23.7 16.6 M21.35 23.1 Q21.65 23.9 22.25 24.5 23.55 26 25.6 26 L26.7 26 26.35 26.3 Q24 28.65 24 32 24 35.25 26.3 37.55 L26.35 37.6 26.8 38 25.6 38 Q23.55 38 22.25 39.5 21.2 40.55 21.05 42 L18.45 42 14.55 24.95 Q17.95 23.8 21.35 23.1"/></svg>`;
+
+const SVG_DECK = `<svg viewBox="8 8 48 48" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M51 24 L50.75 23.3 Q50.45 23 50 23 49.6 23 49.3 23.3 49 23.6 49 24 49 24.45 49.3 24.7 49.6 25 50 25 L50.75 24.7 51 24 M12 20 L52 20 Q56 20 56 24 L56 36 Q56 44 48 44 L16 44 Q8 44 8 36 L8 24 Q8 20 12 20 M12.95 30.7 Q11 30.7 11 32.65 L11 34.75 Q11 36.7 12.95 36.7 L15.05 36.7 Q17 36.7 17 34.75 L17 32.65 Q17 30.7 15.05 30.7 L12.95 30.7 M13 23 L13 25 11 25 11 27 13 27 13 29 15 29 15 27 17 27 17 25 15 25 15 23 13 23 M21 23 Q19 23 19 25 L19 39 Q19 41 21 41 L43 41 Q45 41 45 39 L45 25 Q45 23 43 23 L21 23 M49 26 L48.75 25.3 Q48.45 25 48 25 47.6 25 47.3 25.3 47 25.6 47 26 47 26.45 47.3 26.7 L48 27 48.75 26.7 49 26 M48.95 30.7 Q47 30.7 47 32.65 L47 34.75 Q47 36.7 48.95 36.7 L51.05 36.7 Q53 36.7 53 34.75 L53 32.65 Q53 30.7 51.05 30.7 L48.95 30.7 M51 28 L50.75 27.3 Q50.45 27 50 27 49.6 27 49.3 27.3 49 27.6 49 28 49 28.45 49.3 28.7 49.6 29 50 29 L50.75 28.7 51 28 M53 26 L52.75 25.3 Q52.45 25 52 25 51.6 25 51.3 25.3 51 25.6 51 26 51 26.45 51.3 26.7 51.6 27 52 27 L52.75 26.7 53 26"/></svg>`;
 
 // Update bar
 const updateBar        = document.getElementById('update-bar');
@@ -691,10 +723,13 @@ function renderLibraryGrid() {
     card.className = 'game-card';
     if (selectedGame?.identifier === game.identifier) card.classList.add('selected');
 
-    const libEntry = library[game.identifier];
-    const isFav    = !!libEntry?.is_favorite;
-    const hasCtrl  = hasControllerSupport(game);
-    const installed = !!libEntry?.install_dir;
+    const libEntry  = library[game.identifier];
+    const isFav      = !!libEntry?.is_favorite;
+    const hasCtrl    = hasControllerSupport(game);
+    const hasDeck    = hasDeckVerified(game);
+    const hasWide    = hasWidescreenFix(game);
+    const hasFov     = hasFOV(game);
+    const installed  = !!libEntry?.install_dir;
 
     if (installed) card.classList.add('is-installed');
 
@@ -724,21 +759,42 @@ function renderLibraryGrid() {
     const badgeStrip = document.createElement('div');
     badgeStrip.className = 'card-badges';
 
+    if (hasWide) {
+      const wideBadge = document.createElement('span');
+      wideBadge.className = 'card-badge widescreen-fix';
+      wideBadge.title     = 'Widescreen Fix';
+      wideBadge.innerHTML = SVG_WIDESCREEN;
+      badgeStrip.appendChild(wideBadge);
+    }
+    if (hasFov) {
+      const fovBadge = document.createElement('span');
+      fovBadge.className = 'card-badge fov';
+      fovBadge.title     = 'FOV Support';
+      fovBadge.innerHTML = SVG_FOV;
+      badgeStrip.appendChild(fovBadge);
+    }
+    if (hasDeck) {
+      const deckBadge = document.createElement('span');
+      deckBadge.className = 'card-badge deck-verified';
+      deckBadge.title     = 'Steam Deck Verified';
+      deckBadge.innerHTML = SVG_DECK;
+      badgeStrip.appendChild(deckBadge);
+    }
     if (hasCtrl) {
       const ctrlBadge = document.createElement('span');
-      ctrlBadge.className   = 'card-badge controller';
-      ctrlBadge.textContent = '🎮';
-      ctrlBadge.title       = 'Controller Support';
+      ctrlBadge.className = 'card-badge controller';
+      ctrlBadge.title     = 'Controller Support';
+      ctrlBadge.innerHTML = `<svg viewBox="8 8 48 48" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M29 32.5 Q29 31.05 28 30 27 29 25.5 29 L24.55 29.15 Q23.7 29.35 23.05 30 22 31.05 22 32.5 22 33.95 23.05 35 L24.55 35.9 25.5 36 Q27 36 28 35 29 33.95 29 32.5 M39 32 Q39 30.75 38.15 29.85 37.3 29 36 29 34.75 29 33.9 29.85 33 30.75 33 32 33 33.25 33.9 34.15 34.75 35 36 35 37.3 35 38.15 34.15 39 33.25 39 32 M41 25 Q41 24.15 40.4 23.55 39.85 23 39 23 38.15 23 37.6 23.55 37 24.15 37 25 37 25.8 37.6 26.4 38.15 27 39 27 39.85 27 40.4 26.4 41 25.8 41 25 M34 20 Q34 19.15 33.45 18.55 32.85 18 32 18 31.15 18 30.6 18.55 30 19.15 30 20 30 20.85 30.6 21.45 31.15 22 32 22 32.85 22 33.45 21.45 34 20.85 34 20 M24 23.5 Q24 22.05 23 21 22 20 20.5 20 19.05 20 18.05 21 17 22.05 17 23.5 17 24.95 18.05 26 19.05 27 20.5 27 22 27 23 26 24 24.95 24 23.5 M45 29 Q45 28.15 44.4 27.55 43.85 27 43 27 42.15 27 41.6 27.55 41 28.15 41 29 41 29.8 41.6 30.4 42.15 31 43 31 43.85 31 44.4 30.4 45 29.8 45 29 M49 25 Q49 24.15 48.4 23.55 47.85 23 47 23 46.15 23 45.6 23.55 45 24.15 45 25 45 25.8 45.6 26.4 46.15 27 47 27 47.85 27 48.4 26.4 49 25.8 49 25 M45 21 Q45 20.15 44.4 19.55 43.85 19 43 19 42.15 19 41.6 19.55 41 20.15 41 21 41 21.8 41.6 22.4 42.15 23 43 23 43.85 23 44.4 22.4 45 21.8 45 21 M23.6 38.65 Q22.1 38.65 20.9 39.6 20.15 40.15 19.5 41.1 L17.45 43.75 Q14.65 47.25 12.7 48 9.55 47.55 8.25 43.95 7.95 42.5 8 40.75 8.1 38 9.1 34.5 L9.35 33.55 Q10.2 30.3 11.35 27 L12.1 25 13.35 21.9 14.35 19.6 15.3 18.6 15.45 18.35 15.85 17.65 Q17.55 15.4 21.55 15 L23.5 15 24.25 15.85 39.7 15.85 40.5 15 42.45 15 Q46.45 15.4 48.1 17.65 L48.55 18.35 48.65 18.6 49.65 19.6 50.65 21.9 51.95 25 52.65 27 54.65 33.55 54.9 34.5 Q55.9 38 56 40.75 56.05 42.5 55.75 43.95 54.45 47.55 51.25 48 49.35 47.25 46.5 43.75 L44.5 41.1 43.1 39.6 Q41.9 38.65 40.4 38.65 L23.6 38.65"/></svg>`;
       badgeStrip.appendChild(ctrlBadge);
     }
     if (isFav) {
       const fav = document.createElement('span');
-      fav.className   = 'card-fav';
-      fav.textContent = '★';
+      fav.className = 'card-fav';
+      fav.innerHTML = `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M26.9 2.6 L33.3 13.1 45.3 15.9 Q46.5 16.3 47.2 17.3 48 18.2 48 19.4 47.9 20.6 47.1 21.6 L39.1 31 40.1 43.2 Q40.2 44.5 39.5 45.4 38.8 46.5 37.6 46.8 L35.3 46.7 24 42 12.6 46.7 10.3 46.8 Q9.1 46.5 8.4 45.4 7.7 44.5 7.8 43.2 L8.8 31 0.8 21.6 Q0 20.6 0 19.4 -0.1 18.2 0.7 17.3 1.4 16.3 2.6 15.9 L14.6 13.1 21 2.6 Q21.7 1.6 22.8 1.2 24 0.8 25.1 1.2 26.3 1.6 26.9 2.6"/></svg>`;
       badgeStrip.appendChild(fav);
     }
 
-    if (hasCtrl || isFav) textCol.appendChild(badgeStrip);
+    if (hasWide || hasFov || hasDeck || hasCtrl || isFav) textCol.appendChild(badgeStrip);
     textCol.appendChild(label);
 
     card.appendChild(textCol);
@@ -900,12 +956,17 @@ async function selectGame(game) {
     detailPlaytime.classList.add('hidden');
   }
 
-  const ctrlSupport = hasControllerSupport(game);
-  if (ctrlSupport) {
-    detailExtra.innerHTML = '<span class="controller-badge">🎮 Controller Support</span>';
-  } else {
-    detailExtra.textContent = '';
-  }
+  // Build detail panel badges
+  const deckSupport  = hasDeckVerified(game);
+  const ctrlSupport  = hasControllerSupport(game);
+  const wideSupport  = hasWidescreenFix(game);
+  const fovSupport   = hasFOV(game);
+  const detailBadges = [];
+  if (ctrlSupport) detailBadges.push('<span class="controller-badge"><svg viewBox="8 8 48 48" xmlns="http://www.w3.org/2000/svg" fill="currentColor" style="width:14px;height:14px;flex-shrink:0"><path d="M29 32.5 Q29 31.05 28 30 27 29 25.5 29 L24.55 29.15 Q23.7 29.35 23.05 30 22 31.05 22 32.5 22 33.95 23.05 35 L24.55 35.9 25.5 36 Q27 36 28 35 29 33.95 29 32.5 M39 32 Q39 30.75 38.15 29.85 37.3 29 36 29 34.75 29 33.9 29.85 33 30.75 33 32 33 33.25 33.9 34.15 34.75 35 36 35 37.3 35 38.15 34.15 39 33.25 39 32 M41 25 Q41 24.15 40.4 23.55 39.85 23 39 23 38.15 23 37.6 23.55 37 24.15 37 25 37 25.8 37.6 26.4 38.15 27 39 27 39.85 27 40.4 26.4 41 25.8 41 25 M34 20 Q34 19.15 33.45 18.55 32.85 18 32 18 31.15 18 30.6 18.55 30 19.15 30 20 30 20.85 30.6 21.45 31.15 22 32 22 32.85 22 33.45 21.45 34 20.85 34 20 M24 23.5 Q24 22.05 23 21 22 20 20.5 20 19.05 20 18.05 21 17 22.05 17 23.5 17 24.95 18.05 26 19.05 27 20.5 27 22 27 23 26 24 24.95 24 23.5 M45 29 Q45 28.15 44.4 27.55 43.85 27 43 27 42.15 27 41.6 27.55 41 28.15 41 29 41 29.8 41.6 30.4 42.15 31 43 31 43.85 31 44.4 30.4 45 29.8 45 29 M49 25 Q49 24.15 48.4 23.55 47.85 23 47 23 46.15 23 45.6 23.55 45 24.15 45 25 45 25.8 45.6 26.4 46.15 27 47 27 47.85 27 48.4 26.4 49 25.8 49 25 M45 21 Q45 20.15 44.4 19.55 43.85 19 43 19 42.15 19 41.6 19.55 41 20.15 41 21 41 21.8 41.6 22.4 42.15 23 43 23 43.85 23 44.4 22.4 45 21.8 45 21 M23.6 38.65 Q22.1 38.65 20.9 39.6 20.15 40.15 19.5 41.1 L17.45 43.75 Q14.65 47.25 12.7 48 9.55 47.55 8.25 43.95 7.95 42.5 8 40.75 8.1 38 9.1 34.5 L9.35 33.55 Q10.2 30.3 11.35 27 L12.1 25 13.35 21.9 14.35 19.6 15.3 18.6 15.45 18.35 15.85 17.65 Q17.55 15.4 21.55 15 L23.5 15 24.25 15.85 39.7 15.85 40.5 15 42.45 15 Q46.45 15.4 48.1 17.65 L48.55 18.35 48.65 18.6 49.65 19.6 50.65 21.9 51.95 25 52.65 27 54.65 33.55 54.9 34.5 Q55.9 38 56 40.75 56.05 42.5 55.75 43.95 54.45 47.55 51.25 48 49.35 47.25 46.5 43.75 L44.5 41.1 43.1 39.6 Q41.9 38.65 40.4 38.65 L23.6 38.65"/></svg> Controller Support</span>');
+  if (deckSupport)  detailBadges.push('<span class="deck-badge">'       + SVG_DECK.replace('><path',       ' style="width:14px;height:14px;flex-shrink:0"><path') + ' Deck Verified</span>');
+  if (wideSupport)   detailBadges.push('<span class="widescreen-badge">' + SVG_WIDESCREEN.replace('><path', ' style="width:14px;height:14px;flex-shrink:0"><path') + ' Widescreen Fix</span>');
+  if (fovSupport)    detailBadges.push('<span class="fov-badge">'        + SVG_FOV.replace('><path',       ' style="width:14px;height:14px;flex-shrink:0"><path') + ' FOV</span>');
+  detailExtra.innerHTML = detailBadges.join('') || '';
 
   loadNotesForGame(game.identifier);
 
@@ -988,6 +1049,7 @@ async function refreshButtonStates() {
     btnClearDefault.classList.add('hidden');
     btnFavorite?.classList.add('hidden');
     btnAddToCollection?.classList.add('hidden');
+    renderCollectionChips(null);
     return;
   }
 
@@ -995,7 +1057,9 @@ async function refreshButtonStates() {
     btnFavorite.classList.remove('hidden');
     updateFavoriteButton();
   }
+
   if (btnAddToCollection) btnAddToCollection.classList.remove('hidden');
+  renderCollectionChips(selectedGame.identifier);
 
   const lib = library[selectedGame.identifier];
   const installed = !!(lib?.install_dir);
@@ -1263,13 +1327,33 @@ async function onToggleFavorite() {
   renderLibraryGrid();
 }
 
+const SVG_FAVORITE = `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M26.9 2.6 L33.3 13.1 45.3 15.9 Q46.5 16.3 47.2 17.3 48 18.2 48 19.4 47.9 20.6 47.1 21.6 L39.1 31 40.1 43.2 Q40.2 44.5 39.5 45.4 38.8 46.5 37.6 46.8 L35.3 46.7 24 42 12.6 46.7 10.3 46.8 Q9.1 46.5 8.4 45.4 7.7 44.5 7.8 43.2 L8.8 31 0.8 21.6 Q0 20.6 0 19.4 -0.1 18.2 0.7 17.3 1.4 16.3 2.6 15.9 L14.6 13.1 21 2.6 Q21.7 1.6 22.8 1.2 24 0.8 25.1 1.2 26.3 1.6 26.9 2.6"/></svg>`;
+
 function updateFavoriteButton() {
   const btn = document.getElementById('btn-favorite');
   if (!btn || !selectedGame) return;
   const isFav = !!library[selectedGame.identifier]?.is_favorite;
-  btn.textContent = isFav ? '★' : '☆';
+  btn.innerHTML = SVG_FAVORITE;
   if (isFav) btn.classList.add('is-favorite');
   else       btn.classList.remove('is-favorite');
+}
+
+function renderCollectionChips(identifier) {
+  const container = document.getElementById('detail-collection-chips');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!identifier) return;
+  const memberOf = collections.filter(c => c.games.includes(identifier));
+  memberOf.forEach(c => {
+    const chip = document.createElement('span');
+    chip.className   = 'detail-collection-chip';
+    chip.textContent = c.name;
+    if (c.color) {
+      chip.style.borderColor = c.color;
+      chip.style.color       = c.color;
+    }
+    container.appendChild(chip);
+  });
 }
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
@@ -1332,6 +1416,22 @@ function renderCollectionsList() {
     const countSpan = document.createElement('span');
     countSpan.className   = 'collection-count';
     countSpan.textContent = `${c.games.length} game${c.games.length !== 1 ? 's' : ''}`;
+    // Color swatch — native color picker
+    const colorInput = document.createElement('input');
+    colorInput.type  = 'color';
+    colorInput.className = 'collection-color-input';
+    colorInput.value = c.color || '#888899';
+    colorInput.title = 'Pick a colour for this collection';
+    // Only mark as explicitly coloured once the user has interacted
+    if (!c.color) colorInput.dataset.unset = 'true';
+    colorInput.addEventListener('change', async () => {
+      delete colorInput.dataset.unset;
+      await window.electronAPI.setCollectionColor({ id: c.id, color: colorInput.value });
+      collections = await window.electronAPI.getCollections();
+      renderCollectionFilter();
+      renderCollectionChips(selectedGame?.identifier || null);
+    });
+
     const renameBtn = document.createElement('button');
     renameBtn.className   = 'collection-rename-btn';
     renameBtn.textContent = '✏ Rename';
@@ -1355,6 +1455,7 @@ function renderCollectionsList() {
       renderCollectionsList();
       renderLibraryGrid();
     });
+    li.appendChild(colorInput);
     li.appendChild(nameSpan);
     li.appendChild(countSpan);
     li.appendChild(renameBtn);
@@ -1402,6 +1503,7 @@ async function onAddToCollection() {
       }
       collections = await window.electronAPI.getCollections();
       renderCollectionFilter();
+      renderCollectionChips(selectedGame?.identifier || null);
       if (activeCollection) renderLibraryGrid();
     });
     li.addEventListener('click', (e) => { if (e.target !== cb) cb.click(); });

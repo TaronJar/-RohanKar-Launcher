@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   renameCollection:     (opts) => ipcRenderer.invoke('collections-rename',     opts),
   addGameToCollection:  (opts) => ipcRenderer.invoke('collections-add-game',   opts),
   removeGameFromCollection: (opts) => ipcRenderer.invoke('collections-remove-game', opts),
+  setCollectionColor:   (opts) => ipcRenderer.invoke('collections-set-color',  opts),
 
   // Download
   fetchFileList:  (opts)  => ipcRenderer.invoke('fetch-file-list', opts),
