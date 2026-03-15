@@ -915,7 +915,6 @@ ipcMain.handle('delete-game', async (_, { identifier, installDir }) => {
 
 function setupAutoUpdater() {
   if (!app.isPackaged) {
-    console.log('[updater] Dev mode — skipping update check');
     return;
   }
 
